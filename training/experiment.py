@@ -3,7 +3,7 @@ import jax
 import numpy as np
 import typer
 
-from .made import LinearMADE
+from elegy_made.linear import LinearMADE
 
 
 def main(debug: bool = False):
