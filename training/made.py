@@ -67,6 +67,9 @@ class LinearMADE(module.Module):
             n_features: Number of random variable in the input (input dimension).
             input_assignments: Unit assigments from the previous layer.
             is_output: Whether this is an output layer.
+
+        Returns:
+            Tuple of (y, assignments).
         """
 
         if not is_output:
