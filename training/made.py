@@ -59,6 +59,16 @@ class LinearMADE(module.Module):
         input_assignments: np.ndarray,
         is_output: bool = False,
     ):
+        """
+        Creates a mask and unit assignments (for now it uses a very simple deterministic scheme).
+
+        Arguments:
+            output_size: Output dimensionality.
+            n_features: Number of random variable in the input (input dimension).
+            input_assignments: Unit assigments from the previous layer.
+            is_output: Whether this is an output layer.
+        """
+
         if not is_output:
             n_features -= 1
 
