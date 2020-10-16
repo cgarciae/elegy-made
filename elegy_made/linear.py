@@ -5,7 +5,7 @@ import haiku as hk
 import jax.numpy as jnp
 import numpy as np
 from elegy import module
-from elegy.initializers import TruncatedNormal
+from elegy.initializers import TruncatedNormal, VarianceScaling
 from elegy.types import Initializer
 
 
@@ -50,7 +50,7 @@ class LinearMADE(module.Module):
         self.is_output = is_output
         self.with_bias = with_bias
         self.w_init = w_init
-        self.b_init = b_init or jnp.zeros
+        self.b_init = VarianceScaling() if b_init is None else b_init
 
     @staticmethod
     def create_mask(
