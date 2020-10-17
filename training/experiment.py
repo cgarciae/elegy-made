@@ -10,6 +10,7 @@ import typer
 from elegy_made.linear import LinearMADE
 from sklearn.preprocessing import MinMaxScaler
 import seaborn as sns
+from scipy.ndimage.filters import gaussian_filter
 
 
 def main(
@@ -21,6 +22,8 @@ def main(
     n_components: int = 10,
     a1: float = 1.0,
     a2: float = 1.0,
+    n_layers: int = 3,
+    l2: float = 0.0005,
 ):
 
     if debug:
@@ -34,16 +37,29 @@ def main(
 
     X_train = df_train[["x0", "x1"]].to_numpy()
     X_train = MinMaxScaler().fit_transform(X_train)
+    X_train = np.concatenate(
+        [
+            X_train,
+            X_train + np.random.normal(scale=0.02, size=X_train.shape),
+            X_train + np.random.normal(scale=0.02, size=X_train.shape),
+            X_train + np.random.normal(scale=0.02, size=X_train.shape),
+        ],
+        axis=0,
+    )
 
     module = MADE(
         n_units=n_units,
         n_features=X_train.shape[1],
         n_components=n_components,
+        n_layers=n_layers,
     )
 
     model = Model(
         module=module,
-        loss=MixtureNLL4(a1, a2),
+        loss=[
+            MixtureNLL4(a1, a2),
+            elegy.regularizers.GlobalL2(l2),
+        ],
         optimizer=optax.adam(lr),
         run_eagerly=False,
     )
@@ -52,32 +68,36 @@ def main(
         model.fit(
             X_train,
             batch_size=batch_size,
-            epochs=100,
+            epochs=1000,
         )
         viz_component(X_train, model)
 
 
 class MADE(elegy.Module):
-    def __init__(self, n_units: int, n_features: int, n_components: int = 5, **kwargs):
+    def __init__(
+        self,
+        n_units: int,
+        n_features: int,
+        n_components: int = 5,
+        n_layers: int = 3,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.n_units = n_units
         self.n_features = n_features
         self.n_components = n_components
+        self.n_layers = n_layers
 
     def call(self, x):
         assert self.n_features == x.shape[-1]
 
         assignments = np.arange(self.n_features)
 
-        x, assignments = LinearMADE(self.n_units, n_features=self.n_features)(
-            x, assignments
-        )
-        x = jax.nn.relu(x)
-
-        x, assignments = LinearMADE(self.n_units, n_features=self.n_features)(
-            x, assignments
-        )
-        x = jax.nn.relu(x)
+        for i in range(self.n_layers):
+            x, assignments = LinearMADE(self.n_units, n_features=self.n_features)(
+                x, assignments
+            )
+            x = jax.nn.relu(x)
 
         y: np.ndarray = jnp.stack(
             [
@@ -125,6 +145,27 @@ class MixtureNLL(elegy.Loss):
 
         x = x[:, None]
         x = jnp.broadcast_to(x, mean.shape)
+
+        # step = self.add_parameter("step", initializer=jnp.array(0), trainable=False)
+        # self.update_parameter("step", step + 1)
+
+        # def train_params(inputs):
+        #     mean, std, prob = inputs
+        #     prob = jax.lax.stop_gradient(prob)
+        #     return mean, std, prob
+
+        # def train_probs(inputs):
+        #     mean, std, prob = inputs
+        #     mean = jax.lax.stop_gradient(mean)
+        #     std = jax.lax.stop_gradient(std)
+        #     return mean, std, prob
+
+        # mean, std, prob = jax.lax.cond(
+        #     step % 2 != 0,
+        #     train_params,
+        #     train_probs,
+        #     (mean, std, prob),
+        # )
 
         out = jnp.sum(
             -safe_log(
@@ -211,16 +252,18 @@ def viz_component(X, model):
 
     plt.figure(figsize=(16, 10))
     plt.subplot(2, 4, 1)
+    plt.title("P_k(x0)")
     for module in range(densities.shape[1]):
         plt.plot(x0, densities[:, module, 0])
 
     plt.plot(x0, feature_density[:, 0], color="black", linewidth=3)
 
     plt.subplot(2, 4, 2)
-    plt.title(", ".join(f"{p:.3f}" for p in probs[0, :, 0]))
+    plt.title("P(x0)")
     plt.plot(x0, feature_density[:, 0], color="black", linewidth=3)
 
     plt.subplot(2, 4, 3)
+    plt.title("hist(x0)")
     sns.kdeplot(x=X[:, 0], bw_adjust=0.2)
     sns.histplot(x=X[:, 0], stat="density", bins=40)
 
@@ -236,16 +279,19 @@ def viz_component(X, model):
     feature_density = np.sum(densities * probs, axis=1)
 
     plt.subplot(2, 4, 5)
+    plt.title("P_k(x1 | x0 = 0.5)")
     for module in range(densities.shape[1]):
         plt.plot(x1, densities[:, module, 1])
 
     plt.plot(x1, feature_density[:, 1], color="black", linewidth=3)
 
     plt.subplot(2, 4, 6)
+    plt.title("P(x1 | x0 = 0.5)")
     plt.title(", ".join(f"{p:.3f}" for p in probs[0, :, 1]))
     plt.plot(x1, feature_density[:, 1], color="black", linewidth=3)
 
     plt.subplot(2, 4, 7)
+    plt.title("hist(x1 | 0.475 < x0 < 0.525)")
     sns.kdeplot(x=X[(0.475 < X[:, 0]) & (X[:, 0] < 0.525), :][:, 1], bw_adjust=0.2)
     sns.histplot(
         x=X[(0.475 < X[:, 0]) & (X[:, 0] < 0.525), :][:, 1], stat="density", bins=40
@@ -266,11 +312,25 @@ def viz_component(X, model):
     density = density.reshape(x0v.shape)
 
     plt.subplot(2, 4, 4)
-    plt.contourf(x0v, x1v, density, alpha=0.75)
+    plt.title(f"P(x0, x1)")
+    plt.pcolormesh(
+        x0v,
+        x1v,
+        density,
+        shading="gouraud",
+    )
 
     plt.subplot(2, 4, 8)
-    plt.scatter(X[:, 0], X[:, 1], color="black")
-    plt.contourf(x0v, x1v, density, alpha=0.75)
+    plt.title(f"P(x0, x1) + scatter(x0, x1)")
+    sns.scatterplot(x=X[:, 0], y=X[:, 1], color="black")
+    plt.pcolor(
+        x0v,
+        x1v,
+        density,
+        shading="auto",
+        alpha=0.5,
+    )
+    plt.grid(False)
 
     plt.show()
 
