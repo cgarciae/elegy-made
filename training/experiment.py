@@ -6,11 +6,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 import scipy
+import seaborn as sns
 import typer
 from elegy_made.linear import LinearMADE
-from sklearn.preprocessing import MinMaxScaler
-import seaborn as sns
+from scipy.integrate import simps
 from scipy.ndimage.filters import gaussian_filter
+from sklearn.preprocessing import MinMaxScaler
+
+sns.set_theme()
 
 
 def main(
@@ -251,18 +254,18 @@ def viz_component(X, model):
     feature_density = np.sum(densities * probs, axis=1)
 
     plt.figure(figsize=(16, 10))
-    plt.subplot(2, 4, 1)
+    plt.subplot(2, 4, 2)
     plt.title("P_k(x0)")
     for module in range(densities.shape[1]):
         plt.plot(x0, densities[:, module, 0])
 
     plt.plot(x0, feature_density[:, 0], color="black", linewidth=3)
 
-    plt.subplot(2, 4, 2)
+    plt.subplot(2, 4, 3)
     plt.title("P(x0)")
     plt.plot(x0, feature_density[:, 0], color="black", linewidth=3)
 
-    plt.subplot(2, 4, 3)
+    plt.subplot(2, 4, 4)
     plt.title("hist(x0)")
     sns.kdeplot(x=X[:, 0], bw_adjust=0.2)
     sns.histplot(x=X[:, 0], stat="density", bins=40)
@@ -278,19 +281,18 @@ def viz_component(X, model):
     densities, probs = model.densities(x)
     feature_density = np.sum(densities * probs, axis=1)
 
-    plt.subplot(2, 4, 5)
+    plt.subplot(2, 4, 6)
     plt.title("P_k(x1 | x0 = 0.5)")
     for module in range(densities.shape[1]):
         plt.plot(x1, densities[:, module, 1])
 
     plt.plot(x1, feature_density[:, 1], color="black", linewidth=3)
 
-    plt.subplot(2, 4, 6)
+    plt.subplot(2, 4, 7)
     plt.title("P(x1 | x0 = 0.5)")
-    plt.title(", ".join(f"{p:.3f}" for p in probs[0, :, 1]))
     plt.plot(x1, feature_density[:, 1], color="black", linewidth=3)
 
-    plt.subplot(2, 4, 7)
+    plt.subplot(2, 4, 8)
     plt.title("hist(x1 | 0.475 < x0 < 0.525)")
     sns.kdeplot(x=X[(0.475 < X[:, 0]) & (X[:, 0] < 0.525), :][:, 1], bw_adjust=0.2)
     sns.histplot(
@@ -311,8 +313,8 @@ def viz_component(X, model):
     density = np.prod(np.sum(densities * probs, axis=1), axis=1)
     density = density.reshape(x0v.shape)
 
-    plt.subplot(2, 4, 4)
-    plt.title(f"P(x0, x1)")
+    plt.subplot(2, 4, 5)
+    plt.title(f"P(x0, x1) = P(x0) * P(x1 | x0)")
     plt.pcolormesh(
         x0v,
         x1v,
@@ -320,9 +322,9 @@ def viz_component(X, model):
         shading="gouraud",
     )
 
-    plt.subplot(2, 4, 8)
-    plt.title(f"P(x0, x1) + scatter(x0, x1)")
-    sns.scatterplot(x=X[:, 0], y=X[:, 1], color="black")
+    plt.subplot(2, 4, 1)
+    plt.title(f"scatter(x0, x1)")
+    sns.scatterplot(x=X[:, 0], y=X[:, 1], color="black", size=0.5)
     plt.pcolor(
         x0v,
         x1v,
@@ -332,7 +334,12 @@ def viz_component(X, model):
     )
     plt.grid(False)
 
+    print(f"Total probability: {integral(x0, x1, density)}")
     plt.show()
+
+
+def integral(x, y, zz):
+    return simps([simps(zz_x, x) for zz_x in zz], y)
 
 
 if __name__ == "__main__":
