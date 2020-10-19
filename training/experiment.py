@@ -12,6 +12,9 @@ from elegy_made.linear import LinearMADE
 from scipy.integrate import simps
 from scipy.ndimage.filters import gaussian_filter
 from sklearn.preprocessing import MinMaxScaler
+from jax.config import config
+
+config.update("jax_debug_nans", True)
 
 sns.set_theme()
 
@@ -27,6 +30,7 @@ def main(
     a2: float = 1.0,
     n_layers: int = 3,
     l2: float = 0.0005,
+    run_eagerly: bool = False,
 ):
 
     if debug:
@@ -64,14 +68,14 @@ def main(
             elegy.regularizers.GlobalL2(l2),
         ],
         optimizer=optax.adam(lr),
-        run_eagerly=False,
+        run_eagerly=run_eagerly,
     )
 
     for i in range(epochs):
         model.fit(
             X_train,
             batch_size=batch_size,
-            epochs=1000,
+            epochs=epochs,
         )
         viz_component(X_train, model)
 
@@ -100,6 +104,8 @@ class MADE(elegy.Module):
             x, assignments = LinearMADE(self.n_units, n_features=self.n_features)(
                 x, assignments
             )
+            x = elegy.nn.BatchNormalization()(x)
+            x = elegy.nn.Dropout(0.3)(x)
             x = jax.nn.relu(x)
 
         y: np.ndarray = jnp.stack(
@@ -120,7 +126,11 @@ class MADE(elegy.Module):
             axis=1,
         )
 
-        y = jax.ops.index_update(y, jax.ops.index[..., 1], 1.0 + jax.nn.elu(y[..., 1]))
+        elegy.add_loss("activity_l2", 0.01 * jnp.mean(jnp.square(y[..., 1])))
+
+        y = jax.ops.index_update(
+            y, jax.ops.index[..., 1], jnp.maximum(1.0 + jax.nn.elu(y[..., 1]), 1e-6)
+        )
         y = jax.ops.index_update(
             y, jax.ops.index[..., 2], jax.nn.softmax(y[..., 2], axis=1)
         )
@@ -148,27 +158,6 @@ class MixtureNLL(elegy.Loss):
 
         x = x[:, None]
         x = jnp.broadcast_to(x, mean.shape)
-
-        # step = self.add_parameter("step", initializer=jnp.array(0), trainable=False)
-        # self.update_parameter("step", step + 1)
-
-        # def train_params(inputs):
-        #     mean, std, prob = inputs
-        #     prob = jax.lax.stop_gradient(prob)
-        #     return mean, std, prob
-
-        # def train_probs(inputs):
-        #     mean, std, prob = inputs
-        #     mean = jax.lax.stop_gradient(mean)
-        #     std = jax.lax.stop_gradient(std)
-        #     return mean, std, prob
-
-        # mean, std, prob = jax.lax.cond(
-        #     step % 2 != 0,
-        #     train_params,
-        #     train_probs,
-        #     (mean, std, prob),
-        # )
 
         out = jnp.sum(
             -safe_log(
