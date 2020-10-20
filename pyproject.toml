@@ -13,6 +13,7 @@ dataget = "^0.4.15"
 matplotlib = "^3.3.2"
 scikit-learn = "^0.23.2"
 seaborn = "^0.11.0"
+einops = "^0.3.0"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"

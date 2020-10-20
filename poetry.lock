@@ -215,6 +215,14 @@ jaxlib = ["jaxlib (>=0.1.49)"]
 
 [[package]]
 category = "main"
+description = "A new flavour of deep learning operations"
+name = "einops"
+optional = false
+python-versions = "*"
+version = "0.3.0"
+
+[[package]]
+category = "main"
 description = ""
 develop = true
 name = "elegy"
@@ -886,7 +894,7 @@ python-versions = "*"
 version = "0.2.5"
 
 [metadata]
-content-hash = "cca25e9d823ee7d9320cd96337449ab9e2e1ec78cf702eecb09fc7b9a0432dc7"
+content-hash = "10bf0df4caf870d36e10f25e8065a2bf242869e66437d4917151459655148bc7"
 lock-version = "1.0"
 python-versions = "^3.8"
 
@@ -1032,6 +1040,10 @@ deepmerge = [
 dm-haiku = [
     {file = "dm-haiku-0.0.2.tar.gz", hash = "sha256:235f71ab023202e5d21209dd7c5d831512cb3b5cbf3794ab5a657b217c77e862"},
     {file = "dm_haiku-0.0.2-py3-none-any.whl", hash = "sha256:2fc60a3625d7557b975a0bf9a92637dd748f169562abd9c69df125ae7a450d0c"},
+]
+einops = [
+    {file = "einops-0.3.0-py2.py3-none-any.whl", hash = "sha256:a91c6190ceff7d513d74ca9fd701dfa6a1ffcdd98ea0ced14350197c07f75c73"},
+    {file = "einops-0.3.0.tar.gz", hash = "sha256:a3b0935a4556f012cd5fa1851373f63366890a3f6698d117afea55fd2a40c1fc"},
 ]
 elegy = []
 h11 = [

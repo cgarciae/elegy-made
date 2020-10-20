@@ -1,8 +1,8 @@
 
 python -m training.experiment \
     --epochs 1000 \
-    --batch-size 64 \
-    --n-units 512 \
+    --batch-size 256 \
+    --n-units 1024 \
     --lr 0.001 \
     --n-components 10 \
     --a1 1.0 \

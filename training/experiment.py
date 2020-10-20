@@ -1,4 +1,5 @@
 import dataget
+import einops
 import elegy
 import jax
 import jax.numpy as jnp
@@ -9,10 +10,10 @@ import scipy
 import seaborn as sns
 import typer
 from elegy_made.linear import LinearMADE
+from jax.config import config
 from scipy.integrate import simps
 from scipy.ndimage.filters import gaussian_filter
 from sklearn.preprocessing import MinMaxScaler
-from jax.config import config
 
 config.update("jax_debug_nans", True)
 
@@ -64,7 +65,8 @@ def main(
     model = Model(
         module=module,
         loss=[
-            MixtureNLL4(a1, a2),
+            # MixtureNLL4(a1, a2),
+            MixtureNLL(),
             elegy.regularizers.GlobalL2(l2),
         ],
         optimizer=optax.adam(lr),
@@ -104,13 +106,13 @@ class MADE(elegy.Module):
             x, assignments = LinearMADE(self.n_units, n_features=self.n_features)(
                 x, assignments
             )
-            x = elegy.nn.BatchNormalization()(x)
-            x = elegy.nn.Dropout(0.3)(x)
+            # x = elegy.nn.BatchNormalization()(x)
+            # x = elegy.nn.Dropout(0.5)(x)
             x = jax.nn.relu(x)
 
-        y: np.ndarray = jnp.stack(
+        y: np.ndarray = einops.rearrange(
             [
-                jnp.stack(
+                einops.rearrange(
                     [
                         LinearMADE(
                             self.n_features,
@@ -119,20 +121,20 @@ class MADE(elegy.Module):
                         )(x, assignments)[0]
                         for _ in range(3)  # (mean, std, prob)
                     ],
-                    axis=2,
+                    "dim batch feature -> batch feature dim",
                 )
                 for _ in range(self.n_components)
             ],
-            axis=1,
+            "component batch feature dim -> batch feature component dim",
         )
 
-        elegy.add_loss("activity_l2", 0.01 * jnp.mean(jnp.square(y[..., 1])))
+        elegy.add_loss("activity_l2", 0.0 * jnp.mean(jnp.square(y[..., 1])))
 
         y = jax.ops.index_update(
             y, jax.ops.index[..., 1], jnp.maximum(1.0 + jax.nn.elu(y[..., 1]), 1e-6)
         )
         y = jax.ops.index_update(
-            y, jax.ops.index[..., 2], jax.nn.softmax(y[..., 2], axis=1)
+            y, jax.ops.index[..., 2], jax.nn.softmax(y[..., 2], axis=2)
         )
 
         return y
@@ -142,7 +144,12 @@ class Model(elegy.Model):
     def densities(self, x):
         y = self.predict(x)
 
-        x = np.broadcast_to(x[:, None, :], y.shape[:-1])
+        # x = np.broadcast_to(x[:, None, :], y.shape[:-1])
+        x = einops.repeat(
+            x,
+            "batch feature -> batch feature component",
+            component=y.shape[2],
+        )
 
         probs = y[..., 2]
         densities = scipy.stats.norm.pdf(x, loc=y[..., 0], scale=y[..., 1])
@@ -156,14 +163,20 @@ class MixtureNLL(elegy.Loss):
         std = y_pred[..., 1]
         prob = y_pred[..., 2]
 
-        x = x[:, None]
-        x = jnp.broadcast_to(x, mean.shape)
+        # x = x[:, None]
+        # x = jnp.broadcast_to(x, mean.shape)
+
+        x = einops.repeat(
+            x,
+            "batch feature -> batch feature component",
+            component=y_pred.shape[2],
+        )
 
         out = jnp.sum(
             -safe_log(
                 jnp.sum(
                     prob * jax.scipy.stats.norm.pdf(x, loc=mean, scale=std),
-                    axis=1,
+                    axis=2,
                 ),
             ),
             axis=1,
@@ -178,15 +191,17 @@ class MixtureNLL2(elegy.Loss):
         std = y_pred[..., 1]
         prob = y_pred[..., 2]
 
-        x = x[:, None]
-
-        x = jnp.broadcast_to(x, mean.shape)
+        x = einops.repeat(
+            x,
+            "batch feature -> batch feature component",
+            component=y_pred.shape[2],
+        )
 
         component_loss = -jax.scipy.stats.norm.logpdf(x, loc=mean, scale=std)
-        min_loss_index = jnp.argmin(component_loss, axis=1)
-        min_component_loss = jnp.min(component_loss, axis=1)
+        min_loss_index = jnp.argmin(component_loss, axis=2)
+        min_component_loss = jnp.min(component_loss, axis=2)
         prob_loss = -safe_log(
-            jnp.take_along_axis(prob, min_loss_index[:, None], axis=1)
+            jnp.take_along_axis(prob, min_loss_index[:, :, None], axis=2)
         )
 
         return min_component_loss + prob_loss
@@ -240,13 +255,13 @@ def viz_component(X, model):
     x = np.stack([x0, x1], axis=1)
 
     densities, probs = model.densities(x)
-    feature_density = np.sum(densities * probs, axis=1)
+    feature_density = np.einsum("bfd,bfd->bf", densities, probs)
 
     plt.figure(figsize=(16, 10))
     plt.subplot(2, 4, 2)
     plt.title("P_k(x0)")
-    for module in range(densities.shape[1]):
-        plt.plot(x0, densities[:, module, 0])
+    for module in range(densities.shape[2]):
+        plt.plot(x0, densities[:, 0, module])
 
     plt.plot(x0, feature_density[:, 0], color="black", linewidth=3)
 
@@ -268,12 +283,12 @@ def viz_component(X, model):
     x = np.stack([x0, x1], axis=1)
 
     densities, probs = model.densities(x)
-    feature_density = np.sum(densities * probs, axis=1)
+    feature_density = np.einsum("bfd,bfd->bf", densities, probs)
 
     plt.subplot(2, 4, 6)
     plt.title("P_k(x1 | x0 = 0.5)")
-    for module in range(densities.shape[1]):
-        plt.plot(x1, densities[:, module, 1])
+    for module in range(densities.shape[2]):
+        plt.plot(x1, densities[:, 1, module])
 
     plt.plot(x1, feature_density[:, 1], color="black", linewidth=3)
 
@@ -299,7 +314,7 @@ def viz_component(X, model):
     x = np.stack([x0v.flatten(), x1v.flatten()], axis=1)
     densities, probs = model.densities(x)
 
-    density = np.prod(np.sum(densities * probs, axis=1), axis=1)
+    density = np.prod(np.einsum("bfd,bfd->bf", densities, probs), axis=1)
     density = density.reshape(x0v.shape)
 
     plt.subplot(2, 4, 5)
