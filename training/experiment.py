@@ -81,6 +81,7 @@ def main(
     model = Model(
         module=module,
         loss=[
+            # MixtureNLL2(),
             # MixtureNLL4(a1, a2),
             MixtureNLL(component_reduction=component_reduction),
             elegy.regularizers.GlobalL2(l2),
@@ -224,7 +225,7 @@ class MixtureNLL2(elegy.Loss):
         min_component_loss = jnp.min(component_loss, axis=2)
         prob_loss = -safe_log(
             jnp.take_along_axis(prob, min_loss_index[:, :, None], axis=2)
-        )
+        )[..., 0]
 
         return min_component_loss + prob_loss
 
