@@ -1,3 +1,5 @@
+from enum import Enum
+
 import dataget
 import einops
 import elegy
@@ -20,6 +22,11 @@ config.update("jax_debug_nans", True)
 sns.set_theme()
 
 
+class ComponentReduction(str, Enum):
+    sum = "sum"
+    max = "max"
+
+
 def main(
     debug: bool = False,
     lr: float = 0.002,
@@ -32,7 +39,16 @@ def main(
     n_layers: int = 3,
     l2: float = 0.0005,
     run_eagerly: bool = False,
+    comp_red: ComponentReduction = ComponentReduction.sum,
+    viz_steps: int = 1000,
 ):
+
+    if comp_red == ComponentReduction.sum:
+        component_reduction = jnp.sum
+    elif comp_red == ComponentReduction.max:
+        component_reduction = jnp.max
+    else:
+        raise ValueError(f"Invalid component reduction '{comp_red}'")
 
     if debug:
         import debugpy
@@ -66,14 +82,16 @@ def main(
         module=module,
         loss=[
             # MixtureNLL4(a1, a2),
-            MixtureNLL(),
+            MixtureNLL(component_reduction=component_reduction),
             elegy.regularizers.GlobalL2(l2),
         ],
         optimizer=optax.adam(lr),
         run_eagerly=run_eagerly,
     )
 
-    for i in range(epochs):
+    model.summary(X_train[:batch_size])
+
+    for i in range(viz_steps):
         model.fit(
             X_train,
             batch_size=batch_size,
@@ -158,6 +176,10 @@ class Model(elegy.Model):
 
 
 class MixtureNLL(elegy.Loss):
+    def __init__(self, component_reduction=jnp.sum, **kwargs):
+        super().__init__(**kwargs)
+        self.component_reduction = component_reduction
+
     def call(self, x, y_pred):
         mean = y_pred[..., 0]
         std = y_pred[..., 1]
@@ -174,7 +196,7 @@ class MixtureNLL(elegy.Loss):
 
         out = jnp.sum(
             -safe_log(
-                jnp.sum(
+                self.component_reduction(
                     prob * jax.scipy.stats.norm.pdf(x, loc=mean, scale=std),
                     axis=2,
                 ),

@@ -1,12 +1,14 @@
 
 python -m training.experiment \
-    --epochs 1000 \
+    --epochs 100 \
+    --viz-steps 100 \
     --batch-size 256 \
-    --n-units 1024 \
-    --lr 0.001 \
+    --n-units 512 \
+    --lr 0.005 \
     --n-components 10 \
     --a1 1.0 \
     --a2 0.0 \
     --n-layers 3 \
     --l2 0.0000 \
+    --comp-red "sum" \
     "$@"
